@@ -17,16 +17,13 @@ app = FastAPI(
 
 
 # =========================================================
-# CORS
+# CORS CONFIGURATION
 # =========================================================
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://black-hole-ai.onrender.com",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -76,6 +73,7 @@ async def status():
         "name": "BLACK HOLE AI",
         "backend": "FastAPI",
         "ai": "Gemini",
+        "model": "gemini-3.6-flash",
         "status": "online",
     }
 
@@ -87,16 +85,22 @@ async def status():
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
 
-    # Check empty message
+    # -----------------------------------------------------
+    # Validate message
+    # -----------------------------------------------------
+
     if not request.message.strip():
         return {
             "success": False,
             "error": "Message cannot be empty",
         }
 
+    # -----------------------------------------------------
+    # Send message to Gemini
+    # -----------------------------------------------------
+
     try:
 
-        # Send message to AI
         response = await generate_ai_response(
             request.message
         )
@@ -107,15 +111,17 @@ async def chat(request: ChatRequest):
             "response": response,
         }
 
+    # -----------------------------------------------------
+    # Error handling
+    # -----------------------------------------------------
+
     except Exception as error:
 
-        # Print complete error in terminal
         print("=" * 60)
         print("BLACK HOLE AI ERROR")
         print(repr(error))
         print("=" * 60)
 
-        # Return error for testing
         return {
             "success": False,
             "error": str(error),
