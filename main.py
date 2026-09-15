@@ -3,6 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ai import generate_ai_response
+from database import (
+    create_conversation,
+    save_message,
+    get_conversation_messages,
+)
 
 
 # =========================================================
@@ -30,11 +35,18 @@ app.add_middleware(
 
 
 # =========================================================
-# REQUEST MODEL
+# REQUEST MODELS
 # =========================================================
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 
 class ChatRequest(BaseModel):
     message: str
+    history: list[ChatMessage] = []
+    conversation_id: int | None = None
 
 
 # =========================================================
@@ -74,8 +86,41 @@ async def status():
         "backend": "FastAPI",
         "ai": "Gemini",
         "model": "gemini-3.6-flash",
+        "database": "PostgreSQL",
         "status": "online",
     }
+
+
+# =========================================================
+# GET SAVED CONVERSATION
+# =========================================================
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(conversation_id: int):
+
+    try:
+
+        messages = get_conversation_messages(
+            conversation_id
+        )
+
+        return {
+            "success": True,
+            "conversation_id": conversation_id,
+            "messages": messages,
+        }
+
+    except Exception as error:
+
+        print("=" * 60)
+        print("GET CONVERSATION ERROR")
+        print(repr(error))
+        print("=" * 60)
+
+        return {
+            "success": False,
+            "error": str(error),
+        }
 
 
 # =========================================================
@@ -95,25 +140,74 @@ async def chat(request: ChatRequest):
             "error": "Message cannot be empty",
         }
 
-    # -----------------------------------------------------
-    # Send message to Gemini
-    # -----------------------------------------------------
-
     try:
 
-        response = await generate_ai_response(
-            request.message
+        # -------------------------------------------------
+        # Use existing conversation OR create new one
+        # -------------------------------------------------
+
+        conversation_id = request.conversation_id
+
+        if conversation_id is None:
+
+            conversation_id = create_conversation(
+                user_id=1,
+                title=request.message[:50],
+            )
+
+        # -------------------------------------------------
+        # Convert frontend history
+        # -------------------------------------------------
+
+        history = [
+            {
+                "role": item.role,
+                "content": item.content,
+            }
+            for item in request.history
+            if item.role in ["user", "assistant"]
+            and item.content
+        ]
+
+        # -------------------------------------------------
+        # Save user message
+        # -------------------------------------------------
+
+        save_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=request.message.strip(),
         )
+
+        # -------------------------------------------------
+        # Generate AI response
+        # -------------------------------------------------
+
+        response = await generate_ai_response(
+            message=request.message,
+            history=history,
+        )
+
+        # -------------------------------------------------
+        # Save AI response
+        # -------------------------------------------------
+
+        save_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response,
+        )
+
+        # -------------------------------------------------
+        # Return response
+        # -------------------------------------------------
 
         return {
             "success": True,
+            "conversation_id": conversation_id,
             "message": request.message,
             "response": response,
         }
-
-    # -----------------------------------------------------
-    # Error handling
-    # -----------------------------------------------------
 
     except Exception as error:
 
